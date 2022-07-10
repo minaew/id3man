@@ -30,6 +30,19 @@ namespace ID3Man
                 throw new NotImplementedException($"unsupported tag name {tagName}");
             }
 
+            foreach (var frame in GetFrames())
+            {
+                if (frame.Key == key)
+                {
+                    return frame.Value;
+                }
+            }
+
+            return null;
+        }
+
+        public IEnumerable<KeyValuePair<string, string>> GetFrames()
+        {
             var tag = GetTagBody(_filePath);
 
 
@@ -40,37 +53,36 @@ namespace ID3Man
                 // Size      4 * %0xxxxxxx
                 // Flags         $xx xx
                 
+                if (tag[i] == 0)
+                {
+                    yield break; // padding started
+                }
+
                 var frameId = Encoding.ASCII.GetString(tag, i, 4);
                 var frameSizeBytes = tag.Skip(i + 4).Take(4).ToArray();
                 var frameSize = ParseSize(frameSizeBytes);
-                if (frameId == key)
+                var frameFlags = tag.Skip(i + 8).Take(2).ToArray();
+                if (frameFlags[0] != 0 && frameFlags[1] != 0)
                 {
-                    var frameFlags = tag.Skip(i + 8).Take(2).ToArray();
-                    if (frameFlags[0] != 0 && frameFlags[1] != 0)
-                    {
-                        throw new NotImplementedException($"frame flags are not supported (frame: {frameId})");
-                    }
+                    throw new NotImplementedException($"frame flags are not supported (frame: {frameId})");
+                }
 
-                    var frameContent = tag.Skip(i + 10).Take(frameSize).ToArray();
-                    var encoding = frameContent[0];
-                    if (encoding == 0x3)
-                    {
-                        // without first (encoding) and last (terminator)
-                        var textContent = frameContent.Skip(1).Take(frameSize - 2).ToArray();
-                        var str = Encoding.UTF8.GetString(textContent);
-                        // Console.WriteLine($"{frameId} {str}");
-                        return str;
-                    }
-                    else
-                    {
-                        throw new NotImplementedException("unsupported encoding");
-                    }
+                var frameContent = tag.Skip(i + 10).Take(frameSize).ToArray();
+                var encoding = frameContent[0];
+                if (encoding == 0x3)
+                {
+                    // without first (encoding) and last (terminator)
+                    var textContent = frameContent.Skip(1).Take(frameSize - 2).ToArray();
+                    var str = Encoding.UTF8.GetString(textContent);
+                    yield return KeyValuePair.Create(frameId, str);
+                }
+                else
+                {
+                    throw new NotImplementedException("unsupported encoding");
                 }
 
                 i = i + 10 + frameSize;
             }
-
-            return null;
         }
 
         private static byte[] GetTagBody(string filePath)
@@ -86,7 +98,7 @@ namespace ID3Man
                 stream.Read(header, 0, 10);
 
                 var fileId = header.Take(3).ToArray();
-                if (Encoding.ASCII.GetString(fileId) != "ID3")
+                if (fileId[0] != 'I' || fileId[1] != 'D' || fileId[2] != '3')
                 {
                     throw new InvalidOperationException("not supported file format");
                 }
